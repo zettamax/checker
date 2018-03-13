@@ -62,12 +62,17 @@
                 top: -3em;
             }
         }
+        .select-group.btn-primary {
+            z-index: 1;
+            outline: none;
+        }
     </style>
 
     <script type="text/javascript" src="https://code.jquery.com/jquery-3.3.1.slim.min.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.0/js/select2.min.js"></script>
     <script type="text/javascript" src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script type="text/javascript" src="https://cdn.rawgit.com/jacwright/date.format/master/date.format.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
 
     <title>Exchange checker</title>
 </head>
@@ -84,9 +89,32 @@
                 <select disabled id="exchange"></select>
                 <select disabled id="base_coin"></select>
                 <select disabled id="coin"></select>
+
+                <span class="btn btn-link">Group</span>
+                <input type="hidden" id="aggregate">
+                <div class="btn-group" role="group">
+                    <button class="btn select-group btn-primary">No</button>
+                    <button class="btn btn-default select-group" data-aggregate="2">2</button>
+                    <button class="btn btn-default select-group" data-aggregate="5">5</button>
+                    <button class="btn btn-default select-group" data-aggregate="10">10</button>
+                    <button class="btn btn-default select-group" data-aggregate="20">20</button>
+
+                    <div class="btn-group" role="group">
+                        <input type="hidden" id="period" value="histoday">
+                        <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Daily
+                            <span class="caret"></span>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a href="#" data-period="histoday">Daily</a></li>
+                            <li><a href="#" data-period="histohour">Hourly</a></li>
+                            <li><a href="#" data-period="histominute">Minute</a></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
 
-            <div class="navbar-form navbar-left">
+            <div class="navbar-form navbar-right">
                 <button id="save" class="btn btn-default">Save current charts</button>
             </div>
 
@@ -122,11 +150,12 @@
         var exchanges, otherExchanges, mainExchanges = [];
 
         $(document).ready(function() {
-            $.fn.select2.defaults.set('width', '170px');
+            $.fn.select2.defaults.set('width', '125px');
             $.fn.select2.defaults.set('theme', 'bootstrap');
 
             $('#exchange').select2({
-                placeholder: 'Exchange'
+                placeholder: 'Exchange',
+                width: '170px'
             });
             $('#base_coin').select2({
                 placeholder: 'Base coin'
@@ -247,7 +276,8 @@
                         placeholder: {
                             id: '-1',
                             text: 'Exchange'
-                        }
+                        },
+                        width: '170px'
                 });
                     $exchange.prop('disabled', false);
                     $exchange.select2('open');
@@ -276,12 +306,19 @@
             }
 
             function getUrl(data) {
-                return 'https://min-api.cryptocompare.com/data/histoday?' + $.param({
+                var params = {
                     e: data[0],
                     fsym: data[1],
                     tsym: data[2],
-                    limit: 300
-                });
+                    limit: 400
+                };
+
+                var agg;
+                if (agg = $('#aggregate').val()) {
+                    params['aggregate'] = agg;
+                }
+
+                return 'https://min-api.cryptocompare.com/data/'+ $('#period').val() +'?' + $.param(params);
             }
             var fetches = [];
 
@@ -326,7 +363,7 @@
 
             return {
                 x: data.map(function (x) {
-                    return (new Date(x.time * 1000)).format('y-m-d h:i:s');
+                    return (new Date(x.time * 1000)).format('y-m-d H:i:s');
                 }),
                 y: data.map(function (x) {
                     return x.close;// / closeMax;
@@ -367,6 +404,23 @@
 
                 displaySavedSources();
             }
+        });
+
+        $(".dropdown-menu li a").click(function() {
+            $('#period').val($(this).data('period'));
+            $(this).parents('.btn-group').find('.dropdown-toggle').html(
+                $(this).text()+' <span class="caret"></span>'
+            );
+
+            drawChart();
+        });
+
+        $(".select-group").click(function() {
+            $('#aggregate').val($(this).data('aggregate'));
+            $(".select-group").removeClass('btn-primary').addClass('btn-default');
+            $(this).addClass('btn-primary').removeClass('btn-default');
+
+            drawChart();
         });
 
         function displaySavedSources() {
