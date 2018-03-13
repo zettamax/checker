@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.0/css/select2.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/select2-bootstrap-theme/0.1.0-beta.10/select2-bootstrap.min.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato" rel="stylesheet">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+
+    <style>
+        .select2-results__options {
+            max-height: 360px!important;
+        }
+        .select2-container--bootstrap {
+            display: inline-block;
+        }
+        body {
+            font-family: 'Lato', sans-serif;
+        }
+        #sources:not(:empty):before {
+            content: 'Current charts';
+            font-size: 1.5em;
+        }
+        #saved:not(:empty):before {
+            content: 'Saved charts';
+            font-size: 1.5em;
+        }
+        #saved {
+            margin-top: 0.5em;
+        }
+        #chart {
+            min-height: 500px;
+        }
+        .btn-remove, .wrapper {
+            margin: 0.2em 0.2em 0 0;
+        }
+        .wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        .inner {
+            position: absolute;
+            display: none;
+            left: 5%;
+            top: 0;
+
+            animation-name: example;
+            animation-duration: 0.1s;
+        }
+        .wrapper:hover .inner {
+            display: inline-block;
+            top: -2em;
+        }
+        @keyframes example {
+            from {
+                opacity: 0;
+                top: 0;
+            }
+            to {
+                opacity: 1;
+                top: -3em;
+            }
+        }
+    </style>
+
+    <script type="text/javascript" src="https://code.jquery.com/jquery-3.3.1.slim.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.0/js/select2.min.js"></script>
+    <script type="text/javascript" src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script type="text/javascript" src="https://cdn.rawgit.com/jacwright/date.format/master/date.format.js"></script>
+
+    <title>Exchange checker</title>
+</head>
+<body>
+
+    <nav class="navbar navbar-default">
+        <div class="container">
+
+            <div class="navbar-header">
+                <a class="navbar-brand" href="#">Correlation checker</a>
+            </div>
+
+            <div class="navbar-form navbar-left">
+                <select disabled id="exchange"></select>
+                <select disabled id="base_coin"></select>
+                <select disabled id="coin"></select>
+            </div>
+
+            <div class="navbar-form navbar-left">
+                <button id="save" class="btn btn-default">Save current charts</button>
+            </div>
+
+        </div>
+    </nav>
+
+    <div id="chart"></div>
+
+    <div class="container" id="sources"></div>
+
+    <div class="container" id="saved"></div>
+
+    <script>
+        Object.defineProperty(Object.prototype, 'getSelect2Options', {
+            value: function(useValues) {
+                var data =  useValues ? Object.values(this) : Object.keys(this);
+                return data.map(function (item) {
+                    return {
+                        id: item,
+                        text: item
+                    }
+                });
+            },
+            enumerable : false
+        });
+
+        var chartSources = {};
+        var $sources = $('#sources');
+        var $saved = $('#saved');
+        var $exchange = $('#exchange');
+        var $baseCoin = $('#base_coin');
+        var $coin = $('#coin');
+        var exchanges, otherExchanges, mainExchanges = [];
+
+        $(document).ready(function() {
+            $.fn.select2.defaults.set('width', '170px');
+            $.fn.select2.defaults.set('theme', 'bootstrap');
+
+            $('#exchange').select2({
+                placeholder: 'Exchange'
+            });
+            $('#base_coin').select2({
+                placeholder: 'Base coin'
+            });
+            $('#coin').select2({
+                placeholder: 'Coin'
+            });
+
+            displaySources();
+            displaySavedSources();
+
+            fetchExchanges();
+
+            $exchange.on('select2:select', function (e) {
+                var exchangeName = e.target.value;
+
+                if (!exchangeName) {
+                    $baseCoin.val(null).trigger('change');
+                    $baseCoin.prop('disabled' ,true);
+                    return;
+                }
+
+                $baseCoin.find('option,optgroup').remove();
+                var data = [{
+                        id: '-1'
+                    }].concat(exchanges[exchangeName].getSelect2Options());
+                $baseCoin.select2({
+                    data: data,
+                    placeholder: {
+                        id: '-1',
+                        text: 'Base coin'
+                    }
+                });
+                $baseCoin.prop('disabled', false);
+                $baseCoin.select2('open');
+            });
+
+            $baseCoin.on('select2:select', function (e) {
+                var baseCoin = e.target.value;
+                var exchangeName = $exchange.val();
+
+                if (!baseCoin) {
+                    $coin.val(null).trigger('change');
+                    $coin.prop('disabled' ,true);
+                    return;
+                }
+
+                $coin.find('option,optgroup').remove();
+                var data = [{
+                    id: '-1'
+                }].concat(exchanges[exchangeName][baseCoin].getSelect2Options(true));
+                $coin.select2({
+                    data: data,
+                    placeholder: {
+                        id: '-1',
+                        text: 'Coin'
+                    }
+                });
+                $coin.prop('disabled', false);
+                $coin.select2('open');
+            });
+
+            $coin.on('select2:select', function (e) {
+                var coin = e.target.value;
+                var baseCoin = $baseCoin.val();
+                var exchange = $exchange.val();
+                var key = exchange + ' - ' + baseCoin + ' - ' + coin;
+
+                chartSources[key] = [exchange, baseCoin, coin];
+
+                $exchange.val(null).trigger('change');
+                $baseCoin.val(null).trigger('change').attr('disabled', true);
+                $coin.val(null).trigger('change').attr('disabled', true);
+
+                drawChart();
+                displaySources();
+            })
+
+        });
+
+        function fetchExchanges() {
+            Promise.all([
+                fetch('https://min-api.cryptocompare.com/data/all/exchanges')
+                    .then(function (data) {
+                        return data.json();
+                    }),
+
+                fetch('https://min-api.cryptocompare.com/data/top/exchanges?fsym=BTC&tsym=USD&limit=10')
+                    .then(
+                        function (data) {
+                            return data.json();
+                        }
+                    )
+            ])
+                .then(function (values) {
+                    exchanges = values[0];
+                    var otherExchanges = jQuery.extend(true, {}, exchanges);
+                    var topList = values[1].Data;
+                    var mainExchanges = [];
+
+                    for (var item of topList) {
+                        var name = item['exchange'];
+                        mainExchanges[name] = otherExchanges[name];
+                        delete otherExchanges[name];
+                    }
+
+                    var data = [{
+                        id: '-1'
+                    }]
+                        .concat(mainExchanges.getSelect2Options())
+                        .concat({
+                            id: 'other',
+                            text: 'Other exchanges',
+                            children: otherExchanges.getSelect2Options()});
+
+                    $exchange.select2({
+                        data: data,
+                        placeholder: {
+                            id: '-1',
+                            text: 'Exchange'
+                        }
+                });
+                    $exchange.prop('disabled', false);
+                    $exchange.select2('open');
+                })
+        }
+
+        function displaySources() {
+            $sources.empty();
+            for (var key in chartSources) {
+                if (!chartSources.hasOwnProperty(key)) {
+                    continue;
+                }
+
+                $sources.append(
+                    '<button class="btn btn-danger btn-remove" data-id="'+ key +'">' +
+                        '<span class="badge">Remove</span> ' + key +
+                    '</button>'
+                )
+            }
+        }
+
+        function drawChart() {
+            Plotly.purge('chart');
+            if (!Object.keys(chartSources).length) {
+                return;
+            }
+
+            function getUrl(data) {
+                return 'https://min-api.cryptocompare.com/data/histoday?' + $.param({
+                    e: data[0],
+                    fsym: data[1],
+                    tsym: data[2],
+                    limit: 300
+                });
+            }
+            var fetches = [];
+
+            for (var key in chartSources) {
+                if (!chartSources.hasOwnProperty(key)) {
+                    continue;
+                }
+
+                fetches.push(Promise.all([
+                    fetch(getUrl(chartSources[key]))
+                        .then(function (data) {
+                            return data.json();
+                        }),
+                    key
+                ]))
+            }
+
+            Promise.all(fetches)
+                .then(function (allData) {
+                    var chartData = [];
+
+                    for (data of allData) {
+                        chartData.push(toChartData(data[0].Data, data[1]));
+                    }
+
+                    var layout = {
+                        title: "Let's look for some correlation",
+                        legend: {
+                            orientation: 'h'
+                        }
+                    };
+
+                    Plotly.plot('chart', chartData, layout);
+                })
+        }
+
+        function toChartData(data, key) {
+            var closes = data.map(function (x) {
+                return x.close;
+            });
+            var closeMax = Math.max(...closes);
+
+            return {
+                x: data.map(function (x) {
+                    return (new Date(x.time * 1000)).format('y-m-d h:i:s');
+                }),
+                y: data.map(function (x) {
+                    return x.close;// / closeMax;
+                }),
+                // text: closes,
+                type: 'scatter',
+                name: key
+            }
+        }
+
+        $('body').on('click', '.btn-remove', function () {
+            delete chartSources[$(this).data('id')];
+
+            drawChart();
+            displaySources();
+        });
+
+        $('body').on('click', '.btn-add', function () {
+            var saved = JSON.parse(localStorage.getItem('saved'));
+            var id = $(this).data('id');
+
+            if (saved.hasOwnProperty(id)) {
+
+                chartSources[id] = saved[id];
+                drawChart();
+                displaySources();
+            }
+        });
+
+        $('body').on('click', '.btn-unsave', function () {
+            var saved = JSON.parse(localStorage.getItem('saved'));
+            var id = $(this).data('id');
+
+            if (saved.hasOwnProperty(id)) {
+
+                delete saved[id];
+                localStorage.setItem('saved', JSON.stringify(saved));
+
+                displaySavedSources();
+            }
+        });
+
+        function displaySavedSources() {
+            $saved.empty();
+            var sources = JSON.parse(localStorage.getItem('saved'));
+            for (var key in sources) {
+                if (!sources.hasOwnProperty(key)) {
+                    continue;
+                }
+
+                $saved.append(
+                    '<div class="wrapper">' +
+                        '<button class="btn btn-info btn-add" data-id="'+ key +'">' +
+                            '<span class="badge">Compare</span> ' + key +
+                        '</button>' +
+                        '<button class="inner btn btn-danger btn-unsave" data-id="'+ key + '">' +
+                            'Delete' +
+                        '</button>' +
+                    '</div>'
+                )
+            }
+        }
+
+        $('#save').click(function () {
+            var saved = JSON.parse(localStorage.getItem('saved'));
+            if (saved === null) {
+                saved = {};
+            }
+
+            for (var chart in chartSources) {
+                if (!chartSources.hasOwnProperty(chart)) {
+                    continue;
+                }
+
+                if (saved.hasOwnProperty(chart)) {
+                    continue;
+                }
+
+                saved[chart] = chartSources[chart];
+            }
+
+            localStorage.setItem('saved', JSON.stringify(saved));
+
+            displaySavedSources();
+        });
+
+    </script>
+</body>
+</html>
